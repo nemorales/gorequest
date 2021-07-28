@@ -3,6 +3,7 @@ package gorequest
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -86,6 +87,7 @@ type SuperAgent struct {
 	Retryable            superAgentRetryable
 	DoNotClearSuperAgent bool
 	isClone              bool
+	ctx                  context.Context
 }
 
 var DisableTransportSwap = false
@@ -118,6 +120,41 @@ func New() *SuperAgent {
 		CurlCommand:       false,
 		logger:            log.New(os.Stderr, "[gorequest]", log.LstdFlags),
 		isClone:           false,
+	}
+	// disable keep alives by default, see this issue https://github.com/parnurzeal/gorequest/issues/75
+	s.Transport.DisableKeepAlives = true
+	return s
+}
+
+// Used to create a new SuperAgent object.
+func NewWithContext(ct context.Context) *SuperAgent {
+	cookiejarOptions := cookiejar.Options{
+		PublicSuffixList: publicsuffix.List,
+	}
+	jar, _ := cookiejar.New(&cookiejarOptions)
+
+	debug := os.Getenv("GOREQUEST_DEBUG") == "1"
+
+	s := &SuperAgent{
+		TargetType:        TypeJSON,
+		Data:              make(map[string]interface{}),
+		Header:            http.Header{},
+		RawString:         "",
+		SliceData:         []interface{}{},
+		FormData:          url.Values{},
+		QueryData:         url.Values{},
+		FileData:          make([]File, 0),
+		BounceToRawString: false,
+		Client:            &http.Client{Jar: jar},
+		Transport:         &http.Transport{},
+		Cookies:           make([]*http.Cookie, 0),
+		Errors:            nil,
+		BasicAuth:         struct{ Username, Password string }{},
+		Debug:             debug,
+		CurlCommand:       false,
+		logger:            log.New(os.Stderr, "[gorequest]", log.LstdFlags),
+		isClone:           false,
+		ctx:               ct,
 	}
 	// disable keep alives by default, see this issue https://github.com/parnurzeal/gorequest/issues/75
 	s.Transport.DisableKeepAlives = true
@@ -1376,6 +1413,7 @@ func (s *SuperAgent) MakeRequest() (*http.Request, error) {
 	if req, err = http.NewRequest(s.Method, s.Url, contentReader); err != nil {
 		return nil, err
 	}
+
 	for k, vals := range s.Header {
 		for _, v := range vals {
 			req.Header.Add(k, v)
@@ -1410,6 +1448,10 @@ func (s *SuperAgent) MakeRequest() (*http.Request, error) {
 	// Add cookies
 	for _, cookie := range s.Cookies {
 		req.AddCookie(cookie)
+	}
+
+	if s.ctx != nil {
+		req.WithContext(s.ctx)
 	}
 
 	return req, nil
