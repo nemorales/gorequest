@@ -1451,7 +1451,7 @@ func (s *SuperAgent) MakeRequest() (*http.Request, error) {
 	}
 
 	if s.ctx != nil {
-		req.WithContext(s.ctx)
+		req = req.WithContext(s.ctx)
 	}
 
 	return req, nil
